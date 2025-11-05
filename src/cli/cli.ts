@@ -2,7 +2,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { pathToFileURL } from 'url';
 import { EnvSchema } from '../types';
 import { createEnvGuard } from '../core/envguard';
 
@@ -84,6 +84,7 @@ export class EnvGuardCLI {
   }
 
   private async loadSchema(): Promise<any> {
+    // List of possible config/schema files (priority order)
     const possibleFiles = [
       'envguard.config.ts',
       'envguard.config.js',
@@ -91,63 +92,39 @@ export class EnvGuardCLI {
       'envguard.schema.js',
     ];
 
-    // 🔍 Detect config file automatically
+    // Auto-detect the first existing config file
     const configPath = possibleFiles
-      .map((f) => path.resolve(process.cwd(), f))
-      .find((f) => fs.existsSync(f));
+      .map(f => path.resolve(this.cwd, f))  // Use this.cwd instead of process.cwd()
+      .find(f => fs.existsSync(f));
 
     if (!configPath) {
-      throw new Error(`❌ No envguard config/schema file found in ${process.cwd()}`);
+      throw new Error(`No EnvGuard config/schema file found in ${this.cwd}`);
     }
 
     const ext = path.extname(configPath);
 
     try {
-      // ⚡ Register TS loader only if needed
-      if (ext === '.ts') {
-        if (fs.existsSync(path.join(process.cwd(), 'node_modules', 'esbuild-register'))) {
-          try {
-            const { register } = await import('esbuild-register/dist/node');
-            register({
-              target: 'esnext',
-              format: 'cjs',
-            });
-          } catch (err) {
-            // Fallback to ts-node if esbuild-register is not available or fails
-            // This is handled by the initial 'ts-node/register' import
-            this.log('⚠️ esbuild-register not found, falling back to ts-node.', 'warn');
-            require('ts-node/register');
-          }
-        }
+      // Load schema using the shared, robust helper
+      const schema = await this.loadConfigSchema(configPath, ext);
 
-        // 🧩 Detect ESM vs CommonJS
-        const pkgPath = path.resolve(process.cwd(), 'package.json');
-        const isESM =
-          fs.existsSync(pkgPath) &&
-          JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).type === 'module';
-
-        let configModule: any;
-
-        if (isESM) {
-          configModule = await import(pathToFileURL(configPath).href);
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          configModule = require(configPath);
-        }
-
-        const config = configModule.default || configModule;
-
-        if (!config || typeof config !== 'object') {
-          throw new Error(`❌ Invalid schema export in ${configPath}`);
-        }
-
-        return config;
+      // Validate schema structure
+      if (!schema || typeof schema !== 'object') {
+        throw new Error(`Invalid schema export in ${configPath}`);
       }
-    } catch (err) {
-      console.error(`🚨 Failed to load schema from ${configPath}`);
-      console.error(err);
-      throw err;
-    } // try expected.
+
+      // Extract the actual schema object (handles different export patterns)
+      const actualSchema = schema.schema || schema;
+
+      if (!actualSchema || typeof actualSchema !== 'object') {
+        throw new Error(`No valid schema found in ${configPath}`);
+      }
+
+      return actualSchema;
+    } catch (error: any) {
+      console.error(`Failed to load schema from ${configPath}:`);
+      console.error(error.message);
+      throw error;
+    }
   }
 
   async run(): Promise<void> {
@@ -609,16 +586,56 @@ export const env = envGuard.getAll();
   private async validate(): Promise<void> {
     this.log('Validating environment configuration...', 'info');
 
-    const schema = await this.loadSchema();
+    // List of possible config/schema files
+    const possibleFiles = [
+      'envguard.config.ts',
+      'envguard.config.js',
+      'envguard.schema.ts',
+      'envguard.schema.js',
+    ];
+
+    // Find the first existing config file
+    const configPath = possibleFiles
+      .map(f => path.resolve(this.cwd, f))
+      .find(f => fs.existsSync(f));
+
+    if (!configPath) {
+      this.log('Error: No EnvGuard config/schema found', 'error');
+      process.exit(1);
+    }
+
+    let schema: any;
+
+    try {
+      // Load the schema with full TypeScript/ESM/CJS support
+      schema = await this.loadConfigSchema(configPath, path.extname(configPath));
+    } catch (error: any) {
+      this.log('Error: Failed to load schema', 'error');
+      if (this.options.verbose) {
+        console.error(error.stack);
+      } else {
+        console.error(error.message);
+      }
+      process.exit(1);
+    }
+
+    // Validate that the exported schema is a valid object
+    if (!schema || typeof schema !== 'object') {
+      this.log('Error: Invalid schema export. Must export an object.', 'error');
+      process.exit(1);
+    }
+
+    // Load the .env file (or custom file via --file)
     const envFile = this.options.file || '.env';
     const envPath = path.join(this.cwd, envFile);
 
     if (!fs.existsSync(envPath)) {
-      this.log(`File not found: ${envFile}`, 'error');
+      this.log(`Error: File not found: ${envFile}`, 'error');
       process.exit(1);
     }
 
     try {
+      // Create EnvGuard instance with strict validation
       const envGuard = createEnvGuard({
         schema,
         envPath,
@@ -626,21 +643,24 @@ export const env = envGuard.getAll();
         strict: true,
       });
 
+      // Trigger validation by accessing all env vars
       const env = envGuard.getAll();
 
-      this.log('Validation passed!', 'success');
+      this.log('Success: Validation passed!', 'success');
       this.log(`Found ${Object.keys(env).length} variables`, 'info');
 
+      // Show detailed variable info in verbose mode
       if (this.options.verbose) {
         console.log('\nVariables:');
-        Object.keys(env).forEach(key => {
-          const config = schema[key];
-          const sensitive = config?.sensitive ? '🔒' : '';
-          console.log(`  ${sensitive} ${key}: ${config?.type || 'unknown'}`);
+        Object.entries(schema).forEach(([key, config]: [string, any]) => {
+          const sensitive = config.sensitive ? 'Locked' : '';
+          const required = config.required ? ' (required)' : '';
+          console.log(`  ${sensitive} ${key}: ${config.type || 'string'}${required}`);
         });
       }
+      process.exit(1);
     } catch (error: any) {
-      this.log('Validation failed!', 'error');
+      this.log('Error: Validation failed!', 'error');
       console.error(error.message);
       process.exit(1);
     }
@@ -932,6 +952,77 @@ export const env = envGuard.getAll();
 
     fs.writeFileSync(output, docs);
     this.log(`Documentation generated at ${output}`, 'success');
+  }
+
+  private async loadConfigSchema(configPath: string, ext: string): Promise<any> {
+    let isESM = false;
+
+    // Detect if the project is ESM by checking package.json
+    const pkgPath = path.join(this.cwd, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        isESM = pkg.type === 'module';
+      } catch {
+        // If package.json is invalid, default to CJS
+      }
+    }
+
+    // Register TypeScript loader if file is .ts
+    if (ext === '.ts') {
+      let registered = false;
+
+      // Try esbuild-register first (faster, no type checking)
+      try {
+        const esbuildPath = require.resolve('esbuild-register/dist/node', {
+          paths: [process.cwd()],
+        });
+        if (fs.existsSync(esbuildPath)) {
+          const { register } = await import(esbuildPath);
+          register({
+            target: 'esnext',
+            format: isESM ? 'esm' : 'cjs',
+          });
+          registered = true;
+        }
+      } catch {
+        // Ignore and try ts-node
+      }
+
+      // Fallback to ts-node
+      if (!registered) {
+        try {
+          require('ts-node/register');
+          this.log('TypeScript support enabled via ts-node', 'info');
+        } catch {
+          this.log(
+            'Warning: TypeScript config detected but no loader found (install esbuild-register or ts-node)',
+            'warn'
+          );
+        }
+      }
+    }
+
+    // Load the module
+    let configModule: any;
+
+    if (isESM) {
+      // ESM: use dynamic import with file URL
+      configModule = await import(pathToFileURL(configPath).href);
+    } else {
+      // CommonJS: use require
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      configModule = require(configPath);
+    }
+
+    // Extract schema from common export patterns
+    return (
+      configModule.default ||
+      configModule.schema ||
+      configModule.env ||
+      configModule.envGuard?.schema ||
+      configModule
+    );
   }
 
   private async info(): Promise<void> {
