@@ -1,0 +1,162 @@
+{
+  "name": "envguard",
+  "version": "1.0.0",
+  "description": "Type-safe, validated, and encrypted environment variables for Node.js with auto-generation and hot-reload support",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "bin": {
+    "envguard": "./dist/cjs/cli/cli.js"
+  },
+  "exports": {
+    ".": {
+      "require": "./dist/cjs/index.js",
+      "import": "./dist/esm/index.js",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./express": {
+      "require": "./dist/cjs/integrations/express.js",
+      "import": "./dist/esm/integrations/express.js",
+      "types": "./dist/types/integrations/express.d.ts"
+    },
+    "./nestjs": {
+      "require": "./dist/cjs/integrations/nestjs.js",
+      "import": "./dist/esm/integrations/nestjs.js",
+      "types": "./dist/types/integrations/nestjs.d.ts"
+    },
+    "./fastify": {
+      "require": "./dist/cjs/integrations/fastify.js",
+      "import": "./dist/esm/integrations/fastify.js",
+      "types": "./dist/types/integrations/fastify.d.ts"
+    },
+    "./koa": {
+      "require": "./dist/cjs/integrations/koa.js",
+      "import": "./dist/esm/integrations/koa.js",
+      "types": "./dist/types/integrations/koa.d.ts"
+    },
+    "./react": {
+      "require": "./dist/cjs/integrations/react.js",
+      "import": "./dist/esm/integrations/react.js",
+      "types": "./dist/types/integrations/react.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "clean": "rimraf dist",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:esm": "tsc -p tsconfig.esm.json && echo '{\"type\":\"module\"}' > dist/esm/package.json",
+    "build:types": "tsc -p tsconfig.json --declaration --emitDeclarationOnly --outDir dist/types",
+    "build": "npm run clean && npm run build:cjs && npm run build:esm && npm run build:types",
+    "build:watch": "tsc --watch",
+    "prepublishOnly": "npm run build && npm test",
+    "prebuild": "npm run clean",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage --coverageReporters=text-lcov | coveralls",
+    "test:ci": "jest --ci --coverage --maxWorkers=2",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "type-check": "tsc --noEmit",
+    "validate": "npm run type-check && npm run lint && npm test",
+    "generate-types": "node scripts/generate-types.js",
+    "docs": "typedoc --out docs src",
+    "benchmark": "node benchmarks/run.js",
+    "size": "size-limit",
+    "prepare": "husky install",
+    "precommit": "lint-staged"
+  },
+  "keywords": [
+    "env",
+    "environment",
+    "config",
+    "configuration",
+    "validation",
+    "typescript",
+    "dotenv",
+    "schema",
+    "type-safe",
+    "encryption",
+    "express",
+    "swagger",
+    "node",
+    "nodejs"
+  ],
+  "author": {
+    "name": "Mohamed Rashad",
+    "email": "mohamedrashad5675@gmail.com",
+    "url": "https://github.com/mohrashad"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mohrashad/envguard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mohrashad/envguard/issues"
+  },
+  "homepage": "https://github.com/mohrashad/envguard#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=7.0.0"
+  },
+  "dependencies": {
+    "reflect-metadata": "^0.2.1"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^11.1.8",
+    "@types/express": "^5.0.5",
+    "@types/jest": "^29.5.11",
+    "@types/koa": "^3.0.1",
+    "@types/node": "^20.10.6",
+    "@types/react": "^19.2.2",
+    "@typescript-eslint/eslint-plugin": "^6.17.0",
+    "@typescript-eslint/parser": "^6.17.0",
+    "coveralls": "^3.1.1",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-prettier": "^5.1.2",
+    "fastify": "^5.6.1",
+    "husky": "^8.0.3",
+    "jest": "^29.7.0",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.1.1",
+    "rimraf": "^5.0.5",
+    "size-limit": "^11.0.1",
+    "ts-jest": "^29.1.1",
+    "typedoc": "^0.25.6",
+    "typescript": "^5.3.3"
+  },
+  "peerDependencies": {
+    "esbuild-register": ">=3.6.0"
+  },
+  "optionalDependencies": {
+    "esbuild-register": ">=3.6.0"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  },
+  "size-limit": [
+    {
+      "path": "dist/index.js",
+      "limit": "50 KB"
+    }
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
